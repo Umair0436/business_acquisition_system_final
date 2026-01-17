@@ -1,0 +1,57 @@
+{
+  "database_title": "Business Acquisition Pipeline",
+  "records": [
+    {
+      "properties": {
+        "Record ID": {
+          "title": [
+            {
+              "text": {
+                "content": "listing_4d4b1cad6e254040"
+              }
+            }
+          ]
+        },
+        "Business": {
+          "rich_text": [
+            {
+              "text": {
+                "content": "BizQuest Business Listing"
+              }
+            }
+          ]
+        },
+        "Broker": {
+          "rich_text": [
+            {
+              "text": {
+                "content": "Not Available"
+              }
+            }
+          ]
+        },
+        "Email": {
+          "email": ""
+        },
+        "Phone": {
+          "phone_number": "=\"+1-385-221-7251\""
+        },
+        "Industry": {
+          "select": {
+            "name": "Internet Related Businesses for Sale"
+          }
+        },
+        "Geography": {
+          "select": {
+            "name": "Beverly Hills ,  California  (  Los Angeles County )"
+          }
+        },
+        "Status": {
+          "select": {
+            "name": "Active"
+          }
+        }
+      }
+    }
+  ]
+}
