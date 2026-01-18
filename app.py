@@ -22,7 +22,7 @@ if 'pipeline_running' not in st.session_state:
     st.session_state.pipeline_running = False
 if 'agent_status' not in st.session_state:
     st.session_state.agent_status = {
-        'agent_1': 'pending',  # pending, processing, completed, failed
+        'agent_1': 'pending',
         'agent_2': 'pending',
         'agent_3': 'pending',
         'agent_4': 'pending'
@@ -30,7 +30,7 @@ if 'agent_status' not in st.session_state:
 if 'logs' not in st.session_state:
     st.session_state.logs = []
 if 'pipeline_step' not in st.session_state:
-    st.session_state.pipeline_step = 0  # 0=not started, 1-4=agent number, 5=done
+    st.session_state.pipeline_step = 0
 if 'pipeline_params' not in st.session_state:
     st.session_state.pipeline_params = None
 if 'current_agent_input' not in st.session_state:
@@ -40,10 +40,12 @@ def log(message):
     """Add message to logs"""
     timestamp = datetime.now().strftime("%H:%M:%S")
     st.session_state.logs.append(f"[{timestamp}] {message}")
+    print(f"[{timestamp}] {message}", flush=True)  # Also print to console for debugging
 
 def update_agent_status(agent_num, status):
     """Update agent status"""
     st.session_state.agent_status[f'agent_{agent_num}'] = status
+    log(f"Agent {agent_num} status: {status}")
 
 def run_agent(agent_num, cwd, description, input_text=None, skip_status_update=False):
     """Run an agent and return success status"""
@@ -51,6 +53,12 @@ def run_agent(agent_num, cwd, description, input_text=None, skip_status_update=F
         if not skip_status_update:
             update_agent_status(agent_num, 'processing')
         log(f"🚀 Starting {description}")
+        
+        # Check if directory exists
+        if not Path(cwd).exists():
+            log(f"❌ Directory not found: {cwd}")
+            update_agent_status(agent_num, 'failed')
+            return False
         
         # Set environment to use UTF-8 encoding
         env = os.environ.copy()
@@ -60,6 +68,8 @@ def run_agent(agent_num, cwd, description, input_text=None, skip_status_update=F
         # Use -X utf8 flag for Python 3.7+ to force UTF-8 mode
         python_cmd = [sys.executable, "-X", "utf8", "main.py"]
         
+        log(f"Running command in {cwd}")
+        
         result = subprocess.run(
             python_cmd,
             cwd=cwd,
@@ -67,10 +77,11 @@ def run_agent(agent_num, cwd, description, input_text=None, skip_status_update=F
             text=True,
             encoding='utf-8',
             errors='replace',
-            timeout=600,
+            timeout=300,  # Reduced to 5 minutes
             input=input_text,
             env=env
         )
+        
         if result.returncode == 0:
             update_agent_status(agent_num, 'completed')
             log(f"✅ {description} completed")
@@ -82,9 +93,13 @@ def run_agent(agent_num, cwd, description, input_text=None, skip_status_update=F
             error_msg = result.stderr if result.stderr else result.stdout
             log(f"❌ {description} failed")
             if error_msg:
-                # Show more of the error
                 log(f"Error details: {error_msg[:1000]}")
             return False
+            
+    except subprocess.TimeoutExpired:
+        update_agent_status(agent_num, 'failed')
+        log(f"❌ {description} timeout (exceeded 5 minutes)")
+        return False
     except Exception as e:
         update_agent_status(agent_num, 'failed')
         log(f"❌ {description} error: {str(e)}")
@@ -121,68 +136,12 @@ def update_agent1_config(num_listings):
             config_path.write_text(config_content)
             log(f"✓ Updated config: {num_listings} listings per website")
             return True
-        return False
+        else:
+            log(f"⚠ Config file not found: {config_path}")
+            return False
     except Exception as e:
         log(f"⚠ Config update warning: {str(e)}")
         return False
-
-def run_pipeline(num_listings=5, email_tone='professional'):
-    """Run the complete pipeline sequentially"""
-    st.session_state.logs = []
-    st.session_state.pipeline_running = True
-    
-    # Reset all agent statuses
-    for i in range(1, 5):
-        update_agent_status(i, 'pending')
-    
-    # Update Agent 1 config
-    update_agent1_config(num_listings)
-    
-    # Agent 1: Scraping (needs input for number of listings)
-    agent1_input = f"{num_listings}\n"
-    if not run_agent(1, "agent_1", "Agent 1: Business Listing Scraper", input_text=agent1_input):
-        st.session_state.pipeline_running = False
-        return False
-    
-    time.sleep(1)  # Small delay for UI update
-    
-    # Copy Agent 1 output to Agent 2
-    copy_file("agent_1/output/listings.csv", "agent_2/input/listings.csv")
-    
-    # Agent 2: Broker Intelligence
-    if not run_agent(2, "agent_2", "Agent 2: Broker Intelligence"):
-        st.session_state.pipeline_running = False
-        return False
-    
-    time.sleep(1)  # Small delay for UI update
-    
-    # Copy Agent 2 output to Agent 3
-    copy_file("agent_2/output/Master_Broker_Database.csv", "agent_3/input/Master_Broker_Database.csv")
-    
-    # Agent 3: Email Outreach
-    tone_map = {'professional': 'p', 'relationship': 'r', 'direct': 'd'}
-    tone_input = tone_map.get(email_tone, 'p')
-    if not run_agent(3, "agent_3", "Agent 3: Email Outreach", input_text=f"{tone_input}\n"):
-        st.session_state.pipeline_running = False
-        return False
-    
-    time.sleep(1)  # Small delay for UI update
-    
-    # Copy all files to Agent 4
-    copy_file("agent_1/output/listings.csv", "agent_4/input/listings.csv")
-    copy_file("agent_2/output/Master_Broker_Database.csv", "agent_4/input/Master_Broker_Database.csv")
-    copy_file("agent_3/output/email_drafts.csv", "agent_4/input/email_drafts.csv")
-    
-    # Agent 4: Data Catalog
-    if not run_agent(4, "agent_4", "Agent 4: Data Catalog"):
-        st.session_state.pipeline_running = False
-        return False
-    
-    time.sleep(1)  # Small delay for UI update
-    
-    log("🎉 Pipeline completed successfully!")
-    st.session_state.pipeline_running = False
-    return True
 
 def get_output_files():
     """Get list of available output files"""
@@ -200,10 +159,10 @@ def get_output_files():
 def get_status_color(status):
     """Get color based on status"""
     colors = {
-        'pending': '#E0E0E0',      # Gray
-        'processing': '#FFA500',   # Orange
-        'completed': '#4CAF50',    # Green
-        'failed': '#F44336'        # Red
+        'pending': '#E0E0E0',
+        'processing': '#FFA500',
+        'completed': '#4CAF50',
+        'failed': '#F44336'
     }
     return colors.get(status, '#E0E0E0')
 
@@ -227,7 +186,6 @@ left_col, center_col, right_col = st.columns([1.5, 3, 2])
 with left_col:
     st.header("⚙️ Configuration")
     
-    # Number input for listings
     num_listings = st.number_input(
         "Number of listings per website",
         min_value=1,
@@ -238,7 +196,6 @@ with left_col:
     
     st.markdown("---")
     
-    # Dropdown for email tone
     email_tone = st.selectbox(
         "Email Tone",
         ["professional", "relationship", "direct"],
@@ -250,20 +207,22 @@ with left_col:
     
     # Start Pipeline Button
     if st.button("🚀 Start Pipeline", type="primary", use_container_width=True, disabled=st.session_state.pipeline_running):
+        log("=== Pipeline Starting ===")
         st.session_state.pipeline_running = True
         st.session_state.pipeline_step = 0
         st.session_state.logs = []
         st.session_state.pipeline_params = (int(num_listings), email_tone)
+        
         # Reset agent statuses
         for i in range(1, 5):
             update_agent_status(i, 'pending')
+        
         # Initialize pipeline
         update_agent1_config(int(num_listings))
-        st.session_state.pipeline_step = 1  # Start with Agent 1
+        st.session_state.pipeline_step = 1
         st.rerun()
 
 with right_col:
-    # Download Files Section
     st.header("📥 Download Files")
     output_files = get_output_files()
     
@@ -275,12 +234,10 @@ with right_col:
                     if file_path.stat().st_size > 0:
                         file_size = file_path.stat().st_size
                         
-                        # Read file data with error handling
                         try:
                             with open(file_path, 'rb') as f:
                                 file_data = f.read()
                             
-                            # Create download button
                             st.download_button(
                                 label=f"📄 {name} ({file_size // 1024} KB)",
                                 data=file_data,
@@ -289,8 +246,8 @@ with right_col:
                                 use_container_width=True,
                                 key=f"download_{name}_{file_path.stat().st_mtime}"
                             )
-                        except IOError as e:
-                            st.warning(f"⚠️ {name}: File is being used by another process")
+                        except IOError:
+                            st.warning(f"⚠️ {name}: File is being used")
                         except Exception as e:
                             st.error(f"Error reading {name}: {str(e)}")
                     else:
@@ -303,7 +260,6 @@ with right_col:
 with center_col:
     st.header("🤖 Agents Status")
     
-    # Agent Cards in 2x2 grid
     agents_info = [
         (1, "Agent 1", "Business Listing Scraper"),
         (2, "Agent 2", "Broker Intelligence"),
@@ -311,7 +267,6 @@ with center_col:
         (4, "Agent 4", "Data Catalog")
     ]
     
-    # Create 2x2 grid
     col1, col2 = st.columns(2)
     
     with col1:
@@ -398,25 +353,24 @@ with center_col:
     elif all(st.session_state.agent_status[f'agent_{i}'] == 'completed' for i in range(1, 5)):
         st.success("✅ All agents completed successfully!")
     
-    # Logs Section
+    # Logs Section - FIXED: Added proper label
     if st.session_state.logs:
         with st.expander("📝 Execution Logs", expanded=False):
             log_text = "\n".join(st.session_state.logs[-30:])
-            st.text_area("", log_text, height=200, disabled=True, label_visibility="collapsed")
+            st.text_area("Log Output", log_text, height=200, disabled=True, label_visibility="collapsed")
 
-
-# Execute pipeline step by step
+# Execute pipeline step by step - ONLY when button is clicked
 if st.session_state.pipeline_running and st.session_state.pipeline_params:
     num_listings, email_tone = st.session_state.pipeline_params
     step = st.session_state.pipeline_step
     
     if step == 1:
-        # Set status to processing first, then run Agent 1
         update_agent_status(1, 'processing')
         st.session_state.pipeline_step = 1.1
+        time.sleep(0.1)  # Small delay
         st.rerun()
     
-    elif step == 1.1:  # Agent 1 execution
+    elif step == 1.1:
         agent1_input = f"{num_listings}\n"
         if run_agent(1, "agent_1", "Agent 1: Business Listing Scraper", input_text=agent1_input, skip_status_update=True):
             copy_file("agent_1/output/listings.csv", "agent_2/input/listings.csv")
@@ -424,28 +378,30 @@ if st.session_state.pipeline_running and st.session_state.pipeline_params:
             st.rerun()
         else:
             st.session_state.pipeline_running = False
+            st.rerun()
     
     elif step == 2:
-        # Set status to processing first, then run Agent 2
         update_agent_status(2, 'processing')
         st.session_state.pipeline_step = 2.1
+        time.sleep(0.1)
         st.rerun()
     
-    elif step == 2.1:  # Agent 2 execution
+    elif step == 2.1:
         if run_agent(2, "agent_2", "Agent 2: Broker Intelligence", skip_status_update=True):
             copy_file("agent_2/output/Master_Broker_Database.csv", "agent_3/input/Master_Broker_Database.csv")
             st.session_state.pipeline_step = 3
             st.rerun()
         else:
             st.session_state.pipeline_running = False
+            st.rerun()
     
     elif step == 3:
-        # Set status to processing first, then run Agent 3
         update_agent_status(3, 'processing')
         st.session_state.pipeline_step = 3.1
+        time.sleep(0.1)
         st.rerun()
     
-    elif step == 3.1:  # Agent 3 execution
+    elif step == 3.1:
         tone_map = {'professional': 'p', 'relationship': 'r', 'direct': 'd'}
         tone_input = tone_map.get(email_tone, 'p')
         if run_agent(3, "agent_3", "Agent 3: Email Outreach", input_text=f"{tone_input}\n", skip_status_update=True):
@@ -456,14 +412,15 @@ if st.session_state.pipeline_running and st.session_state.pipeline_params:
             st.rerun()
         else:
             st.session_state.pipeline_running = False
+            st.rerun()
     
     elif step == 4:
-        # Set status to processing first, then run Agent 4
         update_agent_status(4, 'processing')
         st.session_state.pipeline_step = 4.1
+        time.sleep(0.1)
         st.rerun()
     
-    elif step == 4.1:  # Agent 4 execution
+    elif step == 4.1:
         if run_agent(4, "agent_4", "Agent 4: Data Catalog", skip_status_update=True):
             log("🎉 Pipeline completed successfully!")
             st.session_state.pipeline_step = 5
@@ -471,6 +428,7 @@ if st.session_state.pipeline_running and st.session_state.pipeline_params:
             st.rerun()
         else:
             st.session_state.pipeline_running = False
+            st.rerun()
 
 # Footer
 st.markdown("---")
